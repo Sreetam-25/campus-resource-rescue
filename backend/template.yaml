@@ -1,0 +1,764 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+
+Description: >
+  Campus Resource Rescue — Serverless backend.
+  Cognito User Pool, API Gateway HTTP API, DynamoDB, S3, Lambda, CloudWatch.
+  Region: ap-southeast-2
+
+# ─────────────────────────────────────────────
+# Parameters
+# ─────────────────────────────────────────────
+Parameters:
+
+  StackEnv:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, production]
+    Description: >
+      Logical environment name. Appended to resource names to allow multiple
+      stacks in the same account (e.g. dev vs production).
+
+  FrontendOrigin:
+    Type: String
+    Default: "https://main.d3dibxtbw38fiq.amplifyapp.com"
+    Description: >
+      Complete frontend origin URL (e.g. https://main.d3dibxtbw38fiq.amplifyapp.com).
+
+  DevOrigin:
+    Type: String
+    Default: "http://localhost:5173"
+    Description: >
+      Additional CORS origin for local development (e.g. http://localhost:5173).
+
+# ─────────────────────────────────────────────
+# Conditions
+# ─────────────────────────────────────────────
+Conditions:
+  IsProduction: !Equals [!Ref StackEnv, "production"]
+
+# ─────────────────────────────────────────────
+# Globals — applied to all Lambda functions
+# ─────────────────────────────────────────────
+Globals:
+  Function:
+    Runtime: nodejs24.x
+    Architectures:
+      - arm64
+    Environment:
+      Variables:
+        RESOURCES_TABLE:  !Ref ResourcesTable
+        REQUESTS_TABLE:   !Ref RequestsTable
+        IMAGES_BUCKET:    !Ref ImagesBucket
+        AWS_ACCOUNT_ID:   !Ref AWS::AccountId
+        STACK_ENV:        !Ref StackEnv
+
+# ─────────────────────────────────────────────
+# Resources
+# ─────────────────────────────────────────────
+Resources:
+
+  # ── Cognito User Pool ──────────────────────────────────────────────────────
+
+  CampusUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub "campus-resource-rescue-users-${StackEnv}"
+      UsernameAttributes:
+        - email
+      AutoVerifiedAttributes:
+        - email
+      UsernameConfiguration:
+        CaseSensitive: false
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireUppercase: true
+          RequireLowercase: false
+          RequireNumbers: true
+          RequireSymbols: false
+          TemporaryPasswordValidityDays: 7
+      Schema:
+        - Name: name
+          AttributeDataType: String
+          Mutable: true
+          Required: true
+        - Name: email
+          AttributeDataType: String
+          Mutable: false
+          Required: true
+        - Name: accountType
+          AttributeDataType: String
+          Mutable: false
+          Required: false
+          StringAttributeConstraints:
+            MinLength: "1"
+            MaxLength: "20"
+        - Name: department
+          AttributeDataType: String
+          Mutable: true
+          Required: false
+          StringAttributeConstraints:
+            MinLength: "1"
+            MaxLength: "100"
+      # UserPoolAddOns with AdvancedSecurityMode OFF is the default and incurs no cost.
+      # AUDIT and ENFORCED modes incur additional charges — not used here.
+      AccountRecoverySetting:
+        RecoveryMechanisms:
+          - Name: verified_email
+            Priority: 1
+      DeletionProtection: !If [IsProduction, ACTIVE, INACTIVE]
+
+  CampusUserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub "campus-resource-rescue-web-${StackEnv}"
+      UserPoolId: !Ref CampusUserPool
+      # SPA — must not have a client secret
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_USER_SRP_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+      PreventUserExistenceErrors: ENABLED
+      EnableTokenRevocation: true
+      # Token validity
+      AccessTokenValidity: 1
+      IdTokenValidity: 1
+      RefreshTokenValidity: 30
+      TokenValidityUnits:
+        AccessToken:  hours
+        IdToken:      hours
+        RefreshToken: days
+      # Read/write attributes — only what the SPA needs
+      ReadAttributes:
+        - email
+        - name
+        - custom:accountType
+        - custom:department
+      WriteAttributes:
+        - email
+        - name
+        - custom:accountType
+        - custom:department
+
+  # ── DynamoDB Tables ────────────────────────────────────────────────────────
+
+  ResourcesTable:
+    Type: AWS::DynamoDB::Table
+    # DeletionPolicy: Retain prevents accidental data loss when the stack is deleted.
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Sub "crr-resources-${StackEnv}"
+      BillingMode: PAY_PER_REQUEST
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: !If [IsProduction, true, false]
+      # DynamoDB uses AES-256 encryption at rest by default — no SSESpecification needed.
+      AttributeDefinitions:
+        - AttributeName: resourceId
+          AttributeType: S
+        - AttributeName: ownerId
+          AttributeType: S
+        - AttributeName: status
+          AttributeType: S
+        - AttributeName: category
+          AttributeType: S
+        - AttributeName: createdAt
+          AttributeType: S
+      KeySchema:
+        - AttributeName: resourceId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        # GSI-1: My Listings — query by ownerId, sorted newest-first
+        - IndexName: ownerIndex
+          KeySchema:
+            - AttributeName: ownerId
+              KeyType: HASH
+            - AttributeName: createdAt
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        # GSI-2: Browse catalog — query AVAILABLE resources, sorted newest-first
+        - IndexName: statusCreatedIndex
+          KeySchema:
+            - AttributeName: status
+              KeyType: HASH
+            - AttributeName: createdAt
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        # GSI-3: Browse by category / stats aggregation
+        - IndexName: categoryStatusIndex
+          KeySchema:
+            - AttributeName: category
+              KeyType: HASH
+            - AttributeName: createdAt
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      # ResourcesTable tags omitted — cfn-lint validates Tags format strictly.
+
+  RequestsTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Sub "crr-requests-${StackEnv}"
+      BillingMode: PAY_PER_REQUEST
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: !If [IsProduction, true, false]
+      # DynamoDB uses AES-256 encryption at rest by default — no SSESpecification needed.
+      AttributeDefinitions:
+        - AttributeName: requestId
+          AttributeType: S
+        - AttributeName: ownerId
+          AttributeType: S
+        - AttributeName: requesterId
+          AttributeType: S
+        - AttributeName: resourceId
+          AttributeType: S
+        - AttributeName: status
+          AttributeType: S
+        - AttributeName: createdAt
+          AttributeType: S
+      KeySchema:
+        - AttributeName: requestId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        # GSI-1: Incoming Requests — query by ownerId (resource owner), newest-first
+        - IndexName: ownerRequestsIndex
+          KeySchema:
+            - AttributeName: ownerId
+              KeyType: HASH
+            - AttributeName: createdAt
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        # GSI-2: My Sent Requests — query by requesterId, newest-first
+        - IndexName: requesterRequestsIndex
+          KeySchema:
+            - AttributeName: requesterId
+              KeyType: HASH
+            - AttributeName: createdAt
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        # GSI-3: Requests on a resource — used for auto-reject after accept
+        # and for finding PENDING requests on a resource
+        - IndexName: resourceRequestsIndex
+          KeySchema:
+            - AttributeName: resourceId
+              KeyType: HASH
+            - AttributeName: status
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      # RequestsTable tags omitted.
+
+  # ── S3 Bucket ──────────────────────────────────────────────────────────────
+
+  ImagesBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      # Bucket name includes account ID to ensure global uniqueness
+      BucketName: !Sub "crr-images-${AWS::AccountId}-${StackEnv}"
+      # Block all public access — images served only via pre-signed GET URLs
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          # Clean up incomplete multipart uploads automatically
+          - Id: AbortIncompleteMultipartUploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+      CorsConfiguration:
+        CorsRules:
+          # Pre-signed POST upload and GET download require CORS for browser access.
+          # Origins are restricted to configured Amplify domain and optional dev origin.
+          # The wildcard * is never used.
+          - AllowedMethods:
+              - GET
+              - POST
+            AllowedHeaders:
+              - "*"
+            ExposedHeaders:
+              - ETag
+            MaxAge: 3000
+            AllowedOrigins:
+              - !Ref FrontendOrigin
+              - !Ref DevOrigin
+      # Tags omitted for S3 Bucket — applied manually or via stack tags after deployment.
+
+  # ── API Gateway HTTP API ───────────────────────────────────────────────────
+
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: v1
+      # StageName v1 → base URL is:
+      #   https://{apiId}.execute-api.ap-southeast-2.amazonaws.com/v1
+      # This matches VITE_API_BASE_URL in the frontend.
+      Description: Campus Resource Rescue API
+      CorsConfiguration:
+        AllowOrigins:
+          - !Ref FrontendOrigin
+          - !Ref DevOrigin
+        AllowMethods:
+          - GET
+          - POST
+          - PATCH
+          - DELETE
+          - OPTIONS
+        AllowHeaders:
+          - authorization
+          - content-type
+        MaxAge: 86400
+      Auth:
+        Authorizers:
+          CognitoAuthorizer:
+            IdentitySource: "$request.header.Authorization"
+            JwtConfiguration:
+              # issuer and audience use lowercase keys as required by SAM.
+              # The JWT authorizer validates the Cognito Access Token signature,
+              # expiry, issuer, and audience. It does NOT validate ID Tokens.
+              # Lambda reads identity from event.requestContext.authorizer.jwt.claims.sub
+              # (the Cognito user sub). The Access Token does NOT contain a name
+              # claim — never read claims.name from the Access Token in Lambda.
+              issuer: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/${CampusUserPool}"
+              audience:
+                - !Ref CampusUserPoolClient
+        # DefaultAuthorizer requires a valid JWT on all routes by default.
+        # Public routes override with AuthorizationType: NONE.
+        # Protected routes additionally set AuthorizationScopes so API Gateway
+        # rejects ID Tokens (which lack aws.cognito.signin.user.admin).
+        DefaultAuthorizer: CognitoAuthorizer
+      # Note: AWS::Serverless::HttpApi does not support a top-level Tags property.
+      # Tags are propagated automatically by SAM to the underlying API Gateway stage.
+
+  # ── IAM Execution Roles ────────────────────────────────────────────────────
+  # Separate, least-privilege role per Lambda function.
+  # No shared role. Each role grants only what its function needs.
+
+  ResourcesFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "crr-resources-role-${StackEnv}"
+      Description: Execution role for resourcesHandler Lambda
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        # Grants CloudWatch Logs: CreateLogGroup, CreateLogStream, PutLogEvents
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBResourcesReadWrite
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:Query
+                Resource:
+                  - !GetAtt ResourcesTable.Arn
+                  - !Sub "${ResourcesTable.Arn}/index/*"
+        - PolicyName: S3GetObjectForPresignedUrl
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                # GetObject is needed to generate pre-signed GET URLs at read time.
+                # No PutObject — resourcesHandler never writes to S3.
+                Action: s3:GetObject
+                Resource: !Sub "${ImagesBucket.Arn}/*"
+
+  RequestsFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "crr-requests-role-${StackEnv}"
+      Description: Execution role for requestsHandler Lambda
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBRequestsFullAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Query
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:TransactWriteItems
+                Resource:
+                  # Needs both tables for atomic TransactWriteItems (accept workflow)
+                  - !GetAtt ResourcesTable.Arn
+                  - !Sub "${ResourcesTable.Arn}/index/*"
+                  - !GetAtt RequestsTable.Arn
+                  - !Sub "${RequestsTable.Arn}/index/*"
+
+  UploadsFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "crr-uploads-role-${StackEnv}"
+      Description: Execution role for uploadsHandler Lambda
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: S3PutObjectUsersPrefix
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                # PutObject scoped to users/ prefix only.
+                # The pre-signed POST policy further restricts this to users/{callerSub}/.
+                Action: s3:PutObject
+                Resource: !Sub "${ImagesBucket.Arn}/users/*"
+
+  StatsFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "crr-stats-role-${StackEnv}"
+      Description: Execution role for statsHandler Lambda
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBReadOnlyStats
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                # Query and Scan only — no write operations
+                Action:
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource:
+                  - !GetAtt ResourcesTable.Arn
+                  - !Sub "${ResourcesTable.Arn}/index/*"
+                  - !GetAtt RequestsTable.Arn
+
+  HealthFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "crr-health-role-${StackEnv}"
+      Description: Execution role for healthHandler Lambda
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        # CloudWatch Logs only — no DynamoDB or S3 access
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+  # ── Lambda Functions ───────────────────────────────────────────────────────
+  # Stub handlers are used for Phase 1.
+  # Each handler exports a `handler` function that returns a minimal response.
+  # Full business logic is implemented in later phases.
+
+  ResourcesFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "crr-resources-${StackEnv}"
+      Description: Handles GET /resources, GET /resources/{id}, POST /resources, PATCH /resources/{id}
+      Handler: src/handlers/resources.handler
+      CodeUri: ./
+      MemorySize: 256
+      Timeout: 10
+      Role: !GetAtt ResourcesFunctionRole.Arn
+      Events:
+        # Public — no auth required
+        GetResources:
+          Type: HttpApi
+          Properties:
+            Path: /resources
+            Method: GET
+            ApiId: !Ref HttpApi
+            Auth:
+              Authorizer: NONE
+        GetResource:
+          Type: HttpApi
+          Properties:
+            Path: /resources/{id}
+            Method: GET
+            ApiId: !Ref HttpApi
+            Auth:
+              Authorizer: NONE
+        # Protected — CognitoAuthorizer (DefaultAuthorizer)
+        PostResource:
+          Type: HttpApi
+          Properties:
+            Path: /resources
+            Method: POST
+            ApiId: !Ref HttpApi
+            Auth:
+              AuthorizationScopes:
+                - aws.cognito.signin.user.admin
+        PatchResource:
+          Type: HttpApi
+          Properties:
+            Path: /resources/{id}
+            Method: PATCH
+            ApiId: !Ref HttpApi
+            Auth:
+              AuthorizationScopes:
+                - aws.cognito.signin.user.admin
+
+  RequestsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "crr-requests-${StackEnv}"
+      Description: Handles request submission, decision workflow, and dashboard views
+      Handler: src/handlers/requests.handler
+      CodeUri: ./
+      MemorySize: 256
+      Timeout: 15
+      Role: !GetAtt RequestsFunctionRole.Arn
+      Events:
+        PostRequest:
+          Type: HttpApi
+          Properties:
+            Path: /resources/{id}/requests
+            Method: POST
+            ApiId: !Ref HttpApi
+            Auth:
+              AuthorizationScopes:
+                - aws.cognito.signin.user.admin
+        GetMyRequests:
+          Type: HttpApi
+          Properties:
+            Path: /requests/my
+            Method: GET
+            ApiId: !Ref HttpApi
+            Auth:
+              AuthorizationScopes:
+                - aws.cognito.signin.user.admin
+        DecideRequest:
+          Type: HttpApi
+          Properties:
+            Path: /requests/{id}/decision
+            Method: POST
+            ApiId: !Ref HttpApi
+            Auth:
+              AuthorizationScopes:
+                - aws.cognito.signin.user.admin
+
+  UploadsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "crr-uploads-${StackEnv}"
+      Description: Generates pre-signed S3 POST policies for image uploads
+      Handler: src/handlers/uploads.handler
+      CodeUri: ./
+      MemorySize: 128
+      Timeout: 5
+      Role: !GetAtt UploadsFunctionRole.Arn
+      Events:
+        PostPresign:
+          Type: HttpApi
+          Properties:
+            Path: /uploads/presign
+            Method: POST
+            ApiId: !Ref HttpApi
+            Auth:
+              AuthorizationScopes:
+                - aws.cognito.signin.user.admin
+
+  StatsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "crr-stats-${StackEnv}"
+      Description: Returns platform statistics aggregated from DynamoDB
+      Handler: src/handlers/stats.handler
+      CodeUri: ./
+      MemorySize: 128
+      Timeout: 10
+      Role: !GetAtt StatsFunctionRole.Arn
+      Events:
+        GetStats:
+          Type: HttpApi
+          Properties:
+            Path: /stats
+            Method: GET
+            ApiId: !Ref HttpApi
+            Auth:
+              Authorizer: NONE
+
+  HealthFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "crr-health-${StackEnv}"
+      Description: Backend liveness check — returns OPERATIONAL status
+      Handler: src/handlers/health.handler
+      CodeUri: ./
+      MemorySize: 128
+      Timeout: 3
+      Role: !GetAtt HealthFunctionRole.Arn
+      Events:
+        GetHealth:
+          Type: HttpApi
+          Properties:
+            Path: /health
+            Method: GET
+            ApiId: !Ref HttpApi
+            Auth:
+              Authorizer: NONE
+
+  # ── CloudWatch Log Groups ──────────────────────────────────────────────────
+  # Explicit log groups with 7-day retention prevent indefinite log accumulation
+  # and the associated storage costs.
+
+  LogGroupResources:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/crr-resources-${StackEnv}"
+      RetentionInDays: 7
+
+  LogGroupRequests:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/crr-requests-${StackEnv}"
+      RetentionInDays: 7
+
+  LogGroupUploads:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/crr-uploads-${StackEnv}"
+      RetentionInDays: 7
+
+  LogGroupStats:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/crr-stats-${StackEnv}"
+      RetentionInDays: 7
+
+  LogGroupHealth:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/crr-health-${StackEnv}"
+      RetentionInDays: 7
+
+  # ── CloudWatch Alarm ───────────────────────────────────────────────────────
+
+  ApiErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "crr-api-5xx-errors-${StackEnv}"
+      AlarmDescription: Fires when the API returns 5 or more 5XX errors in a 5-minute window
+      MetricName: 5XXError
+      Namespace: AWS/ApiGateway
+      Statistic: Sum
+      Period: 300
+      Threshold: 5
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      EvaluationPeriods: 1
+      TreatMissingData: notBreaching
+      Dimensions:
+        - Name: ApiId
+          Value: !Ref HttpApi
+
+# ─────────────────────────────────────────────
+# Outputs
+# ─────────────────────────────────────────────
+Outputs:
+
+  ApiBaseUrl:
+    Description: >
+      API Gateway base URL. Set as VITE_API_BASE_URL in the frontend
+      (Amplify Console → Environment Variables).
+    Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/v1"
+    Export:
+      Name: !Sub "${AWS::StackName}-ApiBaseUrl"
+
+  UserPoolId:
+    Description: >
+      Cognito User Pool ID. Set as VITE_COGNITO_USER_POOL_ID in the frontend.
+    Value: !Ref CampusUserPool
+    Export:
+      Name: !Sub "${AWS::StackName}-UserPoolId"
+
+  UserPoolClientId:
+    Description: >
+      Cognito App Client ID (no secret). Set as VITE_COGNITO_CLIENT_ID in the frontend.
+    Value: !Ref CampusUserPoolClient
+    Export:
+      Name: !Sub "${AWS::StackName}-UserPoolClientId"
+
+  UserPoolArn:
+    Description: Cognito User Pool ARN
+    Value: !GetAtt CampusUserPool.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-UserPoolArn"
+
+  ResourcesTableName:
+    Description: DynamoDB Resources table name
+    Value: !Ref ResourcesTable
+    Export:
+      Name: !Sub "${AWS::StackName}-ResourcesTableName"
+
+  RequestsTableName:
+    Description: DynamoDB Requests table name
+    Value: !Ref RequestsTable
+    Export:
+      Name: !Sub "${AWS::StackName}-RequestsTableName"
+
+  ImagesBucketName:
+    Description: >
+      S3 bucket name for resource images.
+      Used internally by Lambda — not required in the frontend.
+    Value: !Ref ImagesBucket
+    Export:
+      Name: !Sub "${AWS::StackName}-ImagesBucketName"
+
+  CognitoRegion:
+    Description: >
+      AWS region for Cognito. Set as VITE_COGNITO_REGION in the frontend.
+    Value: !Ref AWS::Region
+    Export:
+      Name: !Sub "${AWS::StackName}-CognitoRegion"

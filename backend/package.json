@@ -1,0 +1,18 @@
+{
+  "name": "campus-resource-rescue-backend",
+  "version": "1.0.0",
+  "description": "AWS Serverless backend for Campus Resource Rescue platform",
+  "main": "src/local-server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/local-server.js",
+    "test": "node --test test/**/*.test.mjs"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.600.0",
+    "@aws-sdk/lib-dynamodb": "^3.600.0",
+    "@aws-sdk/client-s3": "^3.600.0",
+    "@aws-sdk/s3-presigned-post": "^3.600.0",
+    "@aws-sdk/s3-request-presigner": "^3.600.0"
+  }
+}

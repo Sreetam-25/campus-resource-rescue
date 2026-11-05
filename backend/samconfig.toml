@@ -1,0 +1,43 @@
+# SAM CLI deployment configuration for Campus Resource Rescue
+# Documentation: https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/serverless-sam-cli-config.html
+
+version = 0.1
+
+# ── Default environment (development) ─────────────────────────────────────────
+[default.global.parameters]
+stack_name = "campus-resource-rescue-dev"
+
+[default.build.parameters]
+cached      = true
+parallel    = false
+
+[default.validate.parameters]
+region = "ap-southeast-2"
+
+[default.deploy.parameters]
+stack_name        = "campus-resource-rescue-dev"
+region            = "ap-southeast-2"
+confirm_changeset = true
+capabilities      = "CAPABILITY_IAM CAPABILITY_AUTO_EXPAND CAPABILITY_NAMED_IAM"
+# CAPABILITY_NAMED_IAM is required because the template creates explicitly named IAM roles.
+
+# resolve_s3 = true instructs SAM CLI to automatically create and manage the
+# S3 bucket used for deployment artifacts. Do NOT set s3_bucket to a literal
+# value — that placeholder approach was removed.
+resolve_s3 = true
+
+# For local development with Vite dev server and deployed Amplify frontend:
+parameter_overrides = "StackEnv=dev DevOrigin=http://localhost:5173 FrontendOrigin=https://main.d3dibxtbw38fiq.amplifyapp.com"
+
+[default.sync.parameters]
+watch = true
+
+# ── Production environment ─────────────────────────────────────────────────────
+[production.deploy.parameters]
+stack_name        = "campus-resource-rescue-production"
+region            = "ap-southeast-2"
+confirm_changeset = true
+capabilities      = "CAPABILITY_IAM CAPABILITY_AUTO_EXPAND CAPABILITY_NAMED_IAM"
+resolve_s3        = true
+# Set FrontendOrigin to your production Amplify URL (e.g. https://main.xxx.amplifyapp.com) before deploying.
+parameter_overrides = "StackEnv=production FrontendOrigin=YOUR_PRODUCTION_FRONTEND_URL"
