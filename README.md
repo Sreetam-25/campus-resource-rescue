@@ -1,38 +1,35 @@
+
 # Campus Resource Rescue
 
-A campus-based resource-sharing platform that helps students and
-departments donate, lend, borrow, and request unused resources instead
-of letting them go to waste.
+A campus-based resource-sharing platform that helps students and departments donate, lend, borrow, and request unused resources instead of letting them go to waste.
 
-```{=html}
-<p align="center">
-```
-`<a href="https://main.d3dibxtbw38fiq.amplifyapp.com/">`{=html}`<strong>`{=html}Live
-Website`</strong>`{=html}`</a>`{=html}
-```{=html}
-</p>
-```
 ## Live Demo
+
+**Live Website:** [Campus Resource Rescue](https://main.d3dibxtbw38fiq.amplifyapp.com/)
+
+The frontend is deployed using **AWS Amplify Hosting**. The backend runs on AWS serverless services in the `ap-southeast-2` (Sydney) region.
 
 ## Screenshots
 
 ### Homepage
+
 ![Homepage](screenshots/homepage.png)
 
 ### Browse Resources
+
 ![Browse Resources](screenshots/browse.png)
 
 ### Resource Details
+
 ![Resource Details](screenshots/details.png)
 
 ### Login and Registration
-![Login](screenshots/login.png)
+
+![Login and Registration](screenshots/login.png)
 
 ### Dashboard
+
 ![Dashboard](screenshots/dashboard.png)
-
-
-**Application:** https://main.d3dibxtbw38fiq.amplifyapp.com/
 
 The frontend is deployed using **AWS Amplify Hosting**. The backend runs
 on AWS serverless services in the `ap-southeast-2` (Sydney) region.
