@@ -1,396 +1,792 @@
 # Campus Resource Rescue
 
-A campus-based resource-sharing platform that enables students to donate, lend, borrow and request unused resources instead of letting them go to waste.
+A campus-based resource-sharing platform that helps students and
+departments donate, lend, borrow, and request unused resources instead
+of letting them go to waste.
 
----
+```{=html}
+<p align="center">
+```
+`<a href="https://main.d3dibxtbw38fiq.amplifyapp.com/">`{=html}`<strong>`{=html}Live
+Website`</strong>`{=html}`</a>`{=html}
+```{=html}
+</p>
+```
+## Live Demo
+
+## Screenshots
+
+### Homepage
+![Homepage](screenshots/homepage.png)
+
+### Browse Resources
+![Browse Resources](screenshots/browse.png)
+
+### Resource Details
+![Resource Details](screenshots/details.png)
+
+### Login and Registration
+![Login](screenshots/login.png)
+
+### Dashboard
+![Dashboard](screenshots/dashboard.png)
+
+
+**Application:** https://main.d3dibxtbw38fiq.amplifyapp.com/
+
+The frontend is deployed using **AWS Amplify Hosting**. The backend runs
+on AWS serverless services in the `ap-southeast-2` (Sydney) region.
+
+------------------------------------------------------------------------
 
 ## Table of Contents
 
-- [Project Overview](#project-overview)
-- [Features](#features)
-- [Technology Stack](#technology-stack)
-- [Architecture](#architecture)
-- [Project Structure](#project-structure)
-- [Local Development Setup](#local-development-setup)
-- [Environment Variables](#environment-variables)
-- [API Documentation](#api-documentation)
-- [AWS Deployment](#aws-deployment)
-- [Security](#security)
-- [Testing](#testing)
-- [Future Improvements](#future-improvements)
+-   [Overview](#overview)
+-   [Problem Statement](#problem-statement)
+-   [Features](#features)
+-   [Technology Stack](#technology-stack)
+-   [System Architecture](#system-architecture)
+-   [Application Workflows](#application-workflows)
+-   [Database Design](#database-design)
+-   [API Overview](#api-overview)
+-   [Project Structure](#project-structure)
+-   [Local Development](#local-development)
+-   [Environment Variables](#environment-variables)
+-   [Deployment](#deployment)
+-   [Security](#security)
+-   [Testing](#testing)
+-   [Limitations and Future
+    Improvements](#limitations-and-future-improvements)
 
----
+------------------------------------------------------------------------
 
-## Project Overview
+## Overview
 
-Campus Resource Rescue tackles material waste and financial strain on university campuses. Every academic semester, textbooks, lab apparatus, electronic gadgets, stationery, and dorm furniture are discarded or left unused, while incoming and continuing students spend significant funds acquiring the exact same equipment.
+Campus Resource Rescue provides a centralised platform for exchanging
+useful resources within a campus community. Students and departments can
+list items they no longer need, browse available resources, and request
+items for permanent transfer or temporary borrowing.
 
-The platform provides a centralised, authenticated campus exchange where students and faculty can:
-- List excess academic supplies and living essentials for donation or temporary loan.
-- Discover available items by category, condition, and sharing model.
-- Coordinate secure claim requests and approvals through a formal two-party workflow.
-- Ensure community accountability through campus-verified accounts.
+The platform supports two sharing models:
 
----
+-   **Give Away:** an item is permanently transferred to another campus
+    member.
+-   **Borrow:** an item is lent temporarily and can become available
+    again after it is returned.
+
+The application uses a React frontend and an AWS serverless backend.
+Authentication is handled by Amazon Cognito, application APIs are
+exposed through API Gateway, business logic runs in AWS Lambda, resource
+data is stored in DynamoDB, and images are stored privately in Amazon
+S3.
+
+## Problem Statement
+
+At the end of each semester, useful textbooks, stationery, electronics,
+laboratory equipment, sports items, and hostel essentials may remain
+unused or be discarded. At the same time, other students spend money
+acquiring similar items.
+
+Campus Resource Rescue aims to reduce this waste and make useful
+resources easier to find by enabling controlled sharing within a campus
+community.
 
 ## Features
 
-The platform currently implements the following functionality:
+### User accounts
 
-- **User Registration & Authentication**: Sign up with institutional email, full name, department, and account type (Student or Department). Enforces strong password requirements.
-- **Email Verification**: Cognito verification code flow confirming ownership of campus email accounts.
-- **Resource Listing**: Create detailed listings specifying title, description, category, condition, sharing type (`GIVE_AWAY` or `BORROW`), campus pickup location, and photograph.
-- **Resource Browsing & Filtering**: Browse available items with multi-parameter filtering (by category, condition, and sharing type) with cursor-based pagination.
-- **Resource Details**: Dedicated view presenting comprehensive item specifications, owner department/identity, listing status, and high-resolution image preview.
-- **Direct S3 Image Uploads**: Secure two-step upload flow using pre-signed S3 POST policies, enforcing user-isolated paths, magic byte verification, and 5MB size limits.
-- **Give Away Workflow**: Direct transfer of ownership for permanently donated resources.
-- **Borrow Workflow**: Temporary lending model allowing students to request and borrow items for coursework or semester duration.
-- **Request Submission**: Submit claim requests with a personalized note to the listing owner. Atomic locking prevents multiple concurrent claims on the same resource.
-- **Request Decision Management (Accept / Reject)**: Owners can review incoming requests on their dashboard, accept the chosen candidate (automatically transitioning the resource to `PENDING_CLAIM`), or reject others.
-- **Personal Dashboard & Analytics**: Tabbed dashboard displaying user-listed resources, outgoing requests, incoming borrower requests, and platform-wide statistics.
+-   Registration using an email address and password.
+-   Email verification through Amazon Cognito.
+-   Login and authenticated sessions.
+-   Student and department account types.
 
----
+### Resource listings
+
+-   Create listings with a title, description, category, condition,
+    sharing type, pickup location, and optional image.
+-   Support for `GIVE_AWAY` and `BORROW` listings.
+-   Owner-controlled resource status updates.
+
+### Browse and discover
+
+-   Browse available resources.
+-   Filter by category, condition, and sharing type.
+-   View resource details and listing information.
+-   Paginated resource results.
+
+### Request management
+
+-   Submit a request with a message to the resource owner.
+-   View sent requests and incoming requests.
+-   Accept or reject requests as the owner.
+-   Automatically reject other pending requests when one request is
+    accepted.
+-   Prevent duplicate pending requests for the same resource and
+    requester.
+
+### Dashboard and statistics
+
+-   View personal listings.
+-   View incoming and outgoing requests.
+-   Display platform statistics and category counts.
+
+### Image uploads
+
+-   Upload images directly from the browser to Amazon S3 using
+    short-lived pre-signed POST policies.
+-   Enforce supported image types and a 5 MB upload limit.
+-   Keep the S3 bucket private.
+
+------------------------------------------------------------------------
 
 ## Technology Stack
 
-### Frontend
-- **Framework**: React 18
-- **Build Tool**: Vite 5
-- **Language**: JavaScript (ES Modules)
-- **Routing**: React Router DOM v7
-- **Authentication SDK**: AWS Amplify JavaScript v6 (`@aws-amplify/auth`)
+  -----------------------------------------------------------------------
+  Layer                   Technology              Responsibility
+  ----------------------- ----------------------- -----------------------
+  Frontend                React 18                User interface
 
-### Backend
-- **Runtime**: Node.js 20.x (ES Modules)
-- **Compute**: AWS Lambda
-- **IaC & Tooling**: AWS Serverless Application Model (SAM) CLI
-- **API Management**: Amazon API Gateway (HTTP API v2)
+  Build tool              Vite 5                  Frontend development
+                                                  and production build
 
-### Cloud Infrastructure
-- **Authentication & Identity**: Amazon Cognito User Pools
-- **Database**: Amazon DynamoDB (Single-table design patterns with On-Demand capacity)
-- **Object Storage**: Amazon S3 (Encrypted, private bucket with CORS and Pre-signed URLs)
-- **Monitoring & Logs**: Amazon CloudWatch Logs
-- **Frontend Hosting**: AWS Amplify Hosting
+  Language                JavaScript (ES Modules) Frontend and backend
+                                                  implementation
 
----
+  Routing                 React Router DOM v7     Client-side navigation
 
-## Architecture
+  Authentication SDK      AWS Amplify JavaScript  Cognito authentication
+                          v6                      integration
 
-Campus Resource Rescue utilizes a serverless architecture where the single-page application interacts with backend microservices via API Gateway HTTP API and Amazon Cognito.
+  Authentication          Amazon Cognito User     Registration, email
+                          Pools                   verification, login,
+                                                  JWTs
 
-```mermaid
-graph TD
-    Client["React Frontend (Amplify Hosting)"]
-    Cognito["Amazon Cognito (User Pool)"]
-    ApiGw["Amazon API Gateway (HTTP API)"]
-    Authorizer["Cognito JWT Authorizer"]
-    S3["Amazon S3 (crr-images bucket)"]
+  API                     Amazon API Gateway HTTP HTTPS API entry point
+                          API                     and JWT authorisation
 
-    subgraph Lambdas ["AWS Lambda Microservices"]
-        HealthFn["healthFunction"]
-        ResourcesFn["resourcesFunction"]
-        RequestsFn["requestsFunction"]
-        UploadsFn["uploadsFunction"]
-        StatsFn["statsFunction"]
-    end
+  Backend                 AWS Lambda, Node.js     Application business
+                          24.x                    logic
 
-    subgraph Database ["Amazon DynamoDB"]
-        DDB_Resources["Resources Table"]
-        DDB_Requests["Requests Table"]
-    end
+  Infrastructure as Code  AWS SAM /               AWS resource
+                          CloudFormation          provisioning
 
-    Client -->|"1. Authenticate (SRP / Password)"| Cognito
-    Cognito -->|"2. JWT Access Token"| Client
-    Client -->|"3. Protected API Calls (Bearer Token)"| ApiGw
-    ApiGw -->|"Validate Token"| Authorizer
-    ApiGw -->|"Route Request"| Lambdas
+  Database                Amazon DynamoDB         Resource and request
+                                                  data
 
-    UploadsFn -->|"Generate Pre-signed Policy"| S3
-    Client -->|"4. Direct Image Upload (Pre-signed POST)"| S3
-    Client -->|"5. Fetch Pre-signed View URL"| S3
+  Object storage          Amazon S3               Private resource-image
+                                                  storage
 
-    ResourcesFn --> DDB_Resources
-    RequestsFn --> DDB_Requests
-    RequestsFn --> DDB_Resources
-    StatsFn --> DDB_Resources
-    StatsFn --> DDB_Requests
+  Monitoring              Amazon CloudWatch       Logs, metrics, and API
+                                                  error alarm
+
+  Hosting                 AWS Amplify Hosting     Public frontend hosting
+  -----------------------------------------------------------------------
+
+------------------------------------------------------------------------
+
+## System Architecture
+
+The application follows a serverless architecture. The browser
+communicates with Amazon Cognito for authentication and with API Gateway
+for application operations. API Gateway routes requests to
+domain-specific Lambda handlers. Lambda functions access DynamoDB and S3
+using separate IAM execution roles.
+
+``` mermaid
+flowchart TD
+    U["Student / Department Browser"] --> FE["React SPA - AWS Amplify Hosting"]
+    FE <--> C["Amazon Cognito User Pool"]
+    FE -->|"HTTPS + Cognito Access Token"| API["Amazon API Gateway HTTP API"]
+    API --> AUTH["JWT Authorizer"]
+    AUTH --> L1["resourcesHandler"]
+    AUTH --> L2["requestsHandler"]
+    AUTH --> L3["uploadsHandler"]
+    API --> L4["statsHandler"]
+    API --> L5["healthHandler"]
+    L1 <--> RDB[("DynamoDB Resources Table")]
+    L2 <--> QDB[("DynamoDB Requests Table")]
+    L2 <--> RDB
+    L3 -->|"Creates pre-signed POST policy"| S3[("Private Amazon S3 Bucket")]
+    FE -->|"Direct image upload using policy"| S3
+    L1 -->|"Creates short-lived pre-signed GET URL"| S3
+    L4 --> RDB
+    L4 --> QDB
+    L1 -.-> CW["Amazon CloudWatch"]
+    L2 -.-> CW
+    L3 -.-> CW
+    L4 -.-> CW
+    L5 -.-> CW
 ```
 
-### Architectural Highlights
+### Main backend components
 
-1. **Authentication Flow**:
-   Users authenticate directly against Cognito User Pools via AWS Amplify Auth v6. Upon successful login, Cognito returns a short-lived JWT Access Token, ID Token, and Refresh Token.
+  -----------------------------------------------------------------------
+  Component                           Responsibility
+  ----------------------------------- -----------------------------------
+  `resourcesHandler`                  Create, browse, retrieve, and
+                                      update resource listings
 
-2. **Protected API Requests & Access Token Usage**:
-   All protected endpoints require the HTTP header `Authorization: Bearer <AccessToken>`. The API Gateway JWT Authorizer natively validates token signature, expiration, issuer, and audience before triggering Lambda functions. Unauthenticated or invalid requests are rejected at the edge with HTTP `401 Unauthorized` without incurring compute charges.
+  `requestsHandler`                   Create requests, list user
+                                      requests, and process owner
+                                      decisions
 
-3. **Pre-Signed S3 Image Uploads**:
-   Images are never uploaded through Lambda functions. The client requests a pre-signed S3 POST policy from `POST /uploads/presign`, which generates a policy restricted to the authenticated user's prefix (`users/{callerSub}/resources/{uuid}.ext`). The browser uploads directly to S3 with multi-part form data. When creating the listing (`POST /resources`), Lambda verifies that the object exists and confirms magic byte integrity (JPEG, PNG, WebP) before persisting the reference.
+  `uploadsHandler`                    Generate user-scoped S3 upload
+                                      policies
 
-4. **Resource and Request Lifecycle**:
-   - Listings begin as `AVAILABLE`.
-   - When a student submits a request, an atomic lock item (`LOCK#{resourceId}#{requesterId}`) is written to DynamoDB in a transaction to prevent duplicate claims.
-   - The listing owner accepts a request, transitioning the resource to `PENDING_CLAIM`.
-   - Upon completion, the owner marks the item `GIVEN_AWAY` or `BORROWED`.
+  `statsHandler`                      Aggregate resource and request
+                                      statistics
 
----
+  `healthHandler`                     Return backend service health
+  -----------------------------------------------------------------------
+
+The five handlers are separate logical components within one serverless
+application; this is not a collection of independently deployed
+microservices.
+
+### Authentication and API access
+
+1.  A user registers and verifies their email through Amazon Cognito.
+2.  After login, the frontend obtains Cognito tokens through AWS
+    Amplify.
+3.  The frontend sends the Cognito Access Token in the
+    `Authorization: Bearer <token>` header when calling protected API
+    routes.
+4.  API Gateway's JWT authorizer validates the token before invoking a
+    protected Lambda handler.
+5.  Lambda obtains the authenticated user's Cognito `sub` claim from the
+    authorizer context. Ownership checks use this identity rather than
+    trusting an identity supplied in the request body.
+
+### Image storage flow
+
+Images are uploaded directly from the browser to S3 rather than being
+sent through Lambda:
+
+1.  The browser requests an upload policy from `POST /uploads/presign`.
+2.  `uploadsHandler` validates the image type and size and creates a key
+    under the authenticated user's S3 prefix.
+3.  The browser uploads the image to S3 using the returned policy
+    fields.
+4.  The browser submits the S3 object key when creating the resource
+    listing.
+5.  `resourcesHandler` checks that the key belongs to the authenticated
+    user before saving the listing.
+6.  When a resource is read, the backend generates a short-lived
+    pre-signed GET URL. The URL itself is not stored in DynamoDB.
+
+------------------------------------------------------------------------
+
+## Application Workflows
+
+### 1. Create a resource listing
+
+``` mermaid
+sequenceDiagram
+    actor User
+    participant Web as React Frontend
+    participant Auth as Cognito
+    participant API as API Gateway
+    participant Upload as uploadsHandler
+    participant S3
+    participant Resource as resourcesHandler
+    participant DB as DynamoDB
+
+    User->>Web: Sign in
+    Web->>Auth: Authenticate
+    Auth-->>Web: Access token
+    User->>Web: Enter listing details and select image
+    Web->>API: POST /uploads/presign
+    API->>Upload: Invoke with authenticated identity
+    Upload-->>Web: Pre-signed POST URL and fields
+    Web->>S3: Upload image directly
+    S3-->>Web: Upload successful
+    Web->>API: POST /resources with imageKey
+    API->>Resource: Invoke with authenticated identity
+    Resource->>DB: Validate ownership and save listing
+    DB-->>Resource: Saved
+    Resource-->>Web: Created resource
+```
+
+### 2. Request and decision lifecycle
+
+-   A requester selects an available listing and submits a request
+    message.
+-   The backend verifies that the resource exists, is available, and is
+    not owned by the requester.
+-   A DynamoDB transaction creates both the request and a lock item that
+    prevents a duplicate pending request by the same requester for the
+    same resource.
+-   The owner can accept or reject a pending request.
+-   Acceptance updates the request and resource atomically. Other
+    pending requests for that resource are then rejected.
+-   For a give-away listing, acceptance moves the resource to
+    `PENDING_CLAIM`; the owner later marks it `GIVEN_AWAY` after
+    collection.
+-   For a borrow listing, acceptance moves the resource to `BORROWED`;
+    the owner can mark it `AVAILABLE` after it is returned.
+
+``` mermaid
+stateDiagram-v2
+    [*] --> AVAILABLE: Listing created
+
+    state "Give Away" as GiveAway {
+        AVAILABLE --> PENDING_CLAIM: Owner accepts request
+        PENDING_CLAIM --> GIVEN_AWAY: Owner confirms collection
+    }
+
+    state "Borrow" as Borrow {
+        AVAILABLE --> BORROWED: Owner accepts request
+        BORROWED --> AVAILABLE: Owner marks item returned
+    }
+
+    state "Request" as Request {
+        [*] --> PENDING
+        PENDING --> ACCEPTED: Owner accepts
+        PENDING --> REJECTED: Owner rejects or another request is accepted
+    }
+```
+
+------------------------------------------------------------------------
+
+## Database Design
+
+Amazon DynamoDB is used in on-demand (`PAY_PER_REQUEST`) mode. The
+application uses two tables.
+
+### Resources table
+
+Stores resource listings.
+
+  Attribute                   Role
+  --------------------------- --------------------------------------
+  `resourceId`                Partition key; UUID
+  `ownerId`                   Cognito user ID of the listing owner
+  `title`                     Resource title
+  `description`               Resource description
+  `category`                  Resource category
+  `condition`                 `New`, `Good`, or `Used`
+  `sharingType`               `GIVE_AWAY` or `BORROW`
+  `location`                  Campus pickup location
+  `imageKey`                  S3 object key, if an image exists
+  `status`                    Current resource lifecycle status
+  `createdAt` / `updatedAt`   Timestamps
+
+**Global Secondary Indexes**
+
+  -----------------------------------------------------------------------------
+  Index                   Partition key     Sort key          Access pattern
+  ----------------------- ----------------- ----------------- -----------------
+  `ownerIndex`            `ownerId`         `createdAt`       A user's listings
+
+  `statusCreatedIndex`    `status`          `createdAt`       Browse resources
+                                                              by status
+
+  `categoryStatusIndex`   `category`        `createdAt`       Browse and
+                                                              aggregate by
+                                                              category
+  -----------------------------------------------------------------------------
+
+### Requests table
+
+Stores resource requests and their lifecycle.
+
+  Attribute                   Role
+  --------------------------- --------------------------------------
+  `requestId`                 Partition key; UUID for a request
+  `resourceId`                Requested resource
+  `ownerId`                   Resource owner's Cognito user ID
+  `requesterId`               Requester's Cognito user ID
+  `message`                   Request message
+  `status`                    `PENDING`, `ACCEPTED`, or `REJECTED`
+  `createdAt` / `updatedAt`   Timestamps
+
+**Global Secondary Indexes**
+
+  --------------------------------------------------------------------------------
+  Index                      Partition key     Sort key          Access pattern
+  -------------------------- ----------------- ----------------- -----------------
+  `ownerRequestsIndex`       `ownerId`         `createdAt`       Incoming requests
+                                                                 for an owner
+
+  `requesterRequestsIndex`   `requesterId`     `createdAt`       Requests
+                                                                 submitted by a
+                                                                 user
+
+  `resourceRequestsIndex`    `resourceId`      `status`          Requests
+                                                                 associated with a
+                                                                 resource
+  --------------------------------------------------------------------------------
+
+### Duplicate request prevention
+
+The Requests table also stores a lock item with a key in the form:
+
+`LOCK#{resourceId}#{requesterId}`
+
+When a request is created, a DynamoDB `TransactWriteItems` operation
+writes the lock and the request together. The lock write uses a
+condition that the key must not already exist. This makes duplicate
+pending-request prevention atomic, including when requests arrive
+concurrently.
+
+When a request is accepted or rejected, the decision transaction deletes
+the corresponding lock item.
+
+------------------------------------------------------------------------
+
+## API Overview
+
+**Protocol:** HTTPS\
+**Base URL:**
+`https://{api-id}.execute-api.ap-southeast-2.amazonaws.com/v1`
+
+Replace `{api-id}` with the API Gateway ID from your deployment.
+
+Protected routes require a Cognito Access Token:
+
+`Authorization: Bearer <access-token>`
+
+  ----------------------------------------------------------------------------------
+  Method            Endpoint                     Access            Description
+  ----------------- ---------------------------- ----------------- -----------------
+  `GET`             `/health`                    Public            Backend health
+                                                                   check
+
+  `GET`             `/resources`                 Public            Browse available
+                                                                   resources with
+                                                                   filters and
+                                                                   pagination
+
+  `GET`             `/resources/{id}`            Public            Get resource
+                                                                   details
+
+  `POST`            `/resources`                 Protected         Create a resource
+                                                                   listing
+
+  `PATCH`           `/resources/{id}`            Protected, owner  Mark a give-away
+                                                 only              as collected or a
+                                                                   borrowed item as
+                                                                   returned
+
+  `POST`            `/resources/{id}/requests`   Protected         Submit a request
+                                                                   for a resource
+
+  `GET`             `/requests/my`               Protected         Get sent or
+                                                                   incoming requests
+
+  `POST`            `/requests/{id}/decision`    Protected, owner  Accept or reject
+                                                 only              a request
+
+  `POST`            `/uploads/presign`           Protected         Generate an S3
+                                                                   upload policy
+
+  `GET`             `/stats`                     Public            Get platform
+                                                                   statistics
+  ----------------------------------------------------------------------------------
+
+### API behaviour
+
+-   Resource browsing supports `category`, `sharingType`, `condition`,
+    `pageSize`, and `nextKey` query parameters.
+-   `GET /requests/my` supports `role`, `status`, `pageSize`, and
+    `nextKey`.
+-   List endpoints use cursor-based pagination.
+-   Successful responses use a JSON envelope containing `success` and
+    `data`; paginated responses also include `meta`.
+-   Errors return a JSON error object with a machine-readable code and
+    message.
+
+For full request/response schemas, validation rules, and error codes,
+refer to the API specification maintained with the project
+documentation.
+
+------------------------------------------------------------------------
 
 ## Project Structure
 
-```text
-.
-├── amplify.yml                      # AWS Amplify build and deployment specification
-├── backend/                         # AWS SAM Serverless backend
-│   ├── .gitignore                   # Backend Git ignore rules
-│   ├── .npmignore                   # NPM packaging ignore rules
-│   ├── package.json                 # Backend dependencies & test scripts
-│   ├── package-lock.json            # Backend dependency lockfile
-│   ├── samconfig.toml               # SAM CLI deployment parameters (dev & prod)
-│   ├── template.yaml                # AWS SAM CloudFormation infrastructure template
+``` text
+campus-resource-rescue/
+├── amplify.yml
+├── backend/
+│   ├── template.yaml
+│   ├── samconfig.toml
+│   ├── package.json
 │   ├── src/
-│   │   ├── handlers/                # AWS Lambda route handlers
-│   │   │   ├── health.mjs           # Health check endpoint
-│   │   │   ├── requests.mjs         # Request creation, listing & decision logic
-│   │   │   ├── resources.mjs        # Resource CRUD & filter operations
-│   │   │   ├── stats.mjs            # Aggregated platform statistics
-│   │   │   └── uploads.mjs          # S3 Pre-signed upload policy generation
-│   │   └── lib/                     # Shared backend utilities
-│   │       ├── auth.mjs             # JWT claim extraction & ownership assertions
-│   │       ├── dynamodb.mjs         # DynamoDB client wrapper & query helpers
-│   │       ├── errors.mjs           # Application error codes & exception classes
-│   │       ├── response.mjs         # Standardised JSON response envelopes
-│   │       ├── s3.mjs               # S3 client wrapper & pre-signed URL helpers
-│   │       └── validate.mjs         # Schema validations, enum checks & cursor codecs
-│   └── test/                        # Backend unit & integration test suites
-│       ├── handlers/                # Handler unit tests (health, requests, resources, stats, uploads)
-│       └── lib/                     # Utility tests (auth, errors, response, validate)
-├── docs/                            # Architecture and design documentation
-│   ├── api-specification.md         # Full REST API request/response specifications
-│   ├── architecture-diagram.md      # Mermaid system diagrams & access patterns
-│   ├── backend-architecture.md      # CloudFormation resource designs & IAM policies
-│   ├── database-design.md           # DynamoDB single-table schema & query keys
-│   └── security-design.md           # Threat model, token validation & S3 security
-├── frontend/                        # React + Vite single-page application
-│   ├── .env.example                 # Frontend environment template
-│   ├── .gitignore                   # Frontend Git ignore rules
-│   ├── deploy-amplify.py            # Automated Amplify deployment packaging script
-│   ├── e2e-test.mjs                 # Comprehensive end-to-end integration test suite
-│   ├── index.html                   # HTML entry point
-│   ├── package.json                 # Frontend dependencies & scripts
-│   ├── package-lock.json            # Frontend dependency lockfile
-│   ├── package-amplify.py           # POSIX ZIP packaging script for Amplify
-│   ├── vite.config.js               # Vite bundler configuration
-│   ├── public/                      # Static assets & favicon
-│   └── src/
-│       ├── App.jsx                  # Main application router and shell
-│       ├── main.jsx                 # React root renderer
-│       ├── components/              # Modular UI components
-│       │   ├── common/              # Shared components (Navbar, Footer, Modal, Badge, Spinner)
-│       │   ├── home/                # Landing page sections (Hero, HowItWorks, CategoryGrid)
-│       │   └── resources/           # Resource cards and filter controls
-│       ├── context/                 # React Context providers (AuthContext)
-│       ├── data/                    # Mock constants and category metadata
-│       ├── pages/                   # Application views (Browse, Detail, Post, Dashboard, Login, Register)
-│       ├── services/                # API communication and Amplify Auth wrappers
-│       └── styles/                  # CSS modules and design system tokens
-├── .env.example                     # Root environment configuration reference
-├── .gitignore                       # Repository root Git ignore rules
-└── README.md                        # Project documentation
+│   │   ├── handlers/
+│   │   │   ├── health.mjs
+│   │   │   ├── resources.mjs
+│   │   │   ├── requests.mjs
+│   │   │   ├── uploads.mjs
+│   │   │   └── stats.mjs
+│   │   └── lib/
+│   │       ├── auth.mjs
+│   │       ├── dynamodb.mjs
+│   │       ├── errors.mjs
+│   │       ├── response.mjs
+│   │       ├── s3.mjs
+│   │       └── validate.mjs
+├── docs/
+│   ├── api-specification.md
+│   ├── architecture-diagram.md
+│   ├── backend-architecture.md
+│   ├── database-design.md
+│   └── security-design.md
+├── frontend/
+│   ├── public/
+│   ├── src/
+│   │   ├── components/
+│   │   ├── context/
+│   │   ├── data/
+│   │   ├── pages/
+│   │   ├── services/
+│   │   └── styles/
+│   ├── .env.example
+│   ├── package.json
+│   └── vite.config.js
+├── .env.example
+└── README.md
 ```
 
----
+This is a high-level view of the repository. Test files and supporting
+scripts are not expanded in the tree above.
 
-## Local Development Setup
+------------------------------------------------------------------------
+
+## Local Development
 
 ### Prerequisites
-- **Node.js**: v20.x LTS or higher
-- **npm**: v10.x or higher
-- **AWS CLI**: v2.x installed and configured (`aws configure`)
-- **AWS SAM CLI**: v1.115.0 or higher
-- **Git**
 
----
+-   Node.js 24.x
+-   npm
+-   Git
+-   AWS CLI v2
+-   AWS SAM CLI (required for backend build and deployment)
 
-### Step 1: Clone the Repository
+### 1. Clone the repository
 
-```bash
-git clone https://github.com/YOUR_ORGANIZATION/campus-resource-rescue.git
+``` bash
+git clone <YOUR_GITHUB_REPOSITORY_URL>
 cd campus-resource-rescue
 ```
 
----
+Replace the placeholder with the actual GitHub repository URL.
 
-### Step 2: Configure and Run the Frontend
+### 2. Configure the frontend
 
-1. Navigate to the frontend directory:
-   ```bash
-   cd frontend
-   ```
+``` bash
+cd frontend
+npm install
+```
 
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
+Create a local environment file from the example:
 
-3. Create your local environment file from the example template:
-   ```bash
-   cp .env.example .env.local
-   ```
+``` bash
+cp .env.example .env.local
+```
 
-4. Populate `.env.local` with your backend endpoints (see [Environment Variables](#environment-variables)):
-   ```env
-   VITE_API_BASE_URL=https://REPLACE_WITH_API_ID.execute-api.ap-southeast-2.amazonaws.com/v1
-   VITE_COGNITO_REGION=ap-southeast-2
-   VITE_COGNITO_USER_POOL_ID=ap-southeast-2_REPLACE_WITH_POOL_ID
-   VITE_COGNITO_CLIENT_ID=REPLACE_WITH_CLIENT_ID
-   ```
+Set the required values in `frontend/.env.local` (see [Environment
+Variables](#environment-variables)).
 
-5. Start the Vite local development server:
-   ```bash
-   npm run dev
-   ```
-   The application will be accessible at `http://localhost:5173`.
+Start the development server:
 
----
+``` bash
+npm run dev
+```
 
-### Step 3: Configure and Build the Backend
+Vite normally serves the frontend at `http://localhost:5173`.
 
-1. Navigate to the backend directory:
-   ```bash
-   cd ../backend
-   ```
+### 3. Install backend dependencies
 
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
+Open another terminal:
 
-3. Validate the SAM CloudFormation template:
-   ```bash
-   sam validate --region ap-southeast-2
-   ```
+``` bash
+cd backend
+npm install
+```
 
-4. Build the serverless application:
-   ```bash
-   sam build
-   ```
+Validate and build the SAM application:
 
----
+``` bash
+sam validate --region ap-southeast-2
+sam build
+```
+
+To run the backend against AWS, configure the required AWS credentials
+and use the deployed API and Cognito configuration. Backend deployment
+is described below.
+
+------------------------------------------------------------------------
 
 ## Environment Variables
 
-All frontend runtime configuration is managed through Vite environment variables. Variables prefixed with `VITE_` are bundled into client-side assets and must **never** contain secret keys.
+Configure these variables in `frontend/.env.local` for local development
+and in the AWS Amplify application environment settings for the deployed
+frontend.
 
-| Variable Name | Purpose | Example / Format |
-| :--- | :--- | :--- |
-| `VITE_API_BASE_URL` | Base invoke URL for API Gateway HTTP API v2 | `https://example123.execute-api.ap-southeast-2.amazonaws.com/v1` |
-| `VITE_COGNITO_REGION` | AWS Region where Cognito User Pool is hosted | `ap-southeast-2` |
-| `VITE_COGNITO_USER_POOL_ID` | Identifier of the Cognito User Pool | `ap-southeast-2_ab12CD34` |
-| `VITE_COGNITO_CLIENT_ID` | Public Cognito SPA App Client ID (no secret) | `1a2b3c4d5e6f7g8h9i0j1k2l3m` |
+  Variable                      Description
+  ----------------------------- ---------------------------------------
+  `VITE_API_BASE_URL`           API Gateway base URL, including `/v1`
+  `VITE_COGNITO_REGION`         Cognito region; `ap-southeast-2`
+  `VITE_COGNITO_USER_POOL_ID`   Cognito User Pool ID
+  `VITE_COGNITO_CLIENT_ID`      Cognito public SPA app client ID
 
-> [!IMPORTANT]
-> The Cognito User Pool ID and Client ID are public identifiers required for SRP authentication; they do not grant unauthorized access without user credentials. Never store AWS secret access keys or private credentials in `.env` files.
+Example format:
 
----
+``` env
+VITE_API_BASE_URL=https://YOUR_API_ID.execute-api.ap-southeast-2.amazonaws.com/v1
+VITE_COGNITO_REGION=ap-southeast-2
+VITE_COGNITO_USER_POOL_ID=ap-southeast-2_YOUR_USER_POOL_ID
+VITE_COGNITO_CLIENT_ID=YOUR_APP_CLIENT_ID
+```
 
-## API Documentation
+The values above are examples. Use the identifiers from your own AWS
+deployment.
 
-All endpoints are hosted under the base prefix `/v1`.
+**Important:** Vite variables prefixed with `VITE_` are bundled into
+frontend assets. Do not put AWS secret access keys, private credentials,
+or other secrets in these variables or commit `.env.local`.
 
-| HTTP Method | Endpoint | Authentication | Purpose |
-| :--- | :--- | :---: | :--- |
-| `GET` | `/health` | Public | Service health and operational status probe |
-| `GET` | `/resources` | Public | Browse catalog with category, sharing type, condition filters, and pagination |
-| `GET` | `/resources/{id}` | Public | Retrieve single resource details and pre-signed image view URL |
-| `POST` | `/resources` | Protected (Cognito JWT) | Publish a new resource listing |
-| `PATCH` | `/resources/{id}` | Protected (Owner only) | Update listing status (e.g. `AVAILABLE` or `GIVEN_AWAY`) |
-| `POST` | `/resources/{id}/requests` | Protected (Cognito JWT) | Submit a claim/borrow request for an available resource |
-| `GET` | `/requests/my` | Protected (Cognito JWT) | Retrieve incoming and outgoing requests for the authenticated user |
-| `POST` | `/requests/{id}/decision` | Protected (Owner only) | Accept or reject a pending request (`ACCEPT` or `REJECT`) |
-| `POST` | `/uploads/presign` | Protected (Cognito JWT) | Generate pre-signed S3 POST upload policy scoped to user directory |
-| `GET` | `/stats` | Public | Summary statistics for platform homepage and dashboard |
+------------------------------------------------------------------------
 
----
+## Deployment
 
-## AWS Deployment
+The application uses AWS Amplify Hosting for the frontend and AWS SAM /
+CloudFormation for backend infrastructure.
 
-### Backend Deployment (AWS SAM)
+### Backend deployment
 
-The backend is packaged and deployed using the AWS Serverless Application Model (SAM):
+From the `backend/` directory:
 
-```bash
-cd backend
+``` bash
 sam build
 sam deploy --guided
 ```
 
-Configuration is persisted in [`backend/samconfig.toml`](file:///e:/Cloud%20Project/backend/samconfig.toml). The development stack automatically provisions:
-- API Gateway HTTP API with native JWT authorizer and CORS rules.
-- 5 Node.js Lambda functions with least-privilege IAM execution roles.
-- 2 DynamoDB tables (`crr-resources-dev`, `crr-requests-dev`) with Global Secondary Indexes.
-- 1 S3 Bucket (`crr-images-{AccountId}-dev`) with AES-256 server-side encryption and private block-public-access settings.
-- 1 Cognito User Pool with email verification and an unauthenticated public SPA client.
+For subsequent deployments, after saving the deployment configuration:
 
-### Frontend Deployment (AWS Amplify Hosting)
+``` bash
+sam build
+sam deploy
+```
 
-The frontend is hosted on AWS Amplify Hosting using manual ZIP-based deployments:
+The SAM template provisions the backend resources, including:
 
-1. Build static production bundle:
-   ```bash
-   cd frontend
-   npm run build
-   ```
-2. Package the `dist` directory ensuring POSIX-compliant paths:
-   ```bash
-   python package-amplify.py
-   ```
-3. Deploy the resulting `dist.zip` archive to Amplify:
-   ```bash
-   python deploy-amplify.py
-   ```
+-   API Gateway HTTP API and Cognito JWT authorizer.
+-   Five Node.js Lambda functions.
+-   Cognito User Pool and SPA app client.
+-   Two DynamoDB tables and their secondary indexes.
+-   Private S3 image bucket.
+-   Separate IAM roles for the Lambda functions.
+-   CloudWatch log groups and an API 5xx alarm.
 
----
+The deployment uses the `ap-southeast-2` region. Review the SAM
+parameters and environment-specific origins before deploying.
+
+### Frontend deployment
+
+The production frontend is hosted at:
+
+https://main.d3dibxtbw38fiq.amplifyapp.com/
+
+AWS Amplify Hosting uses the repository's `amplify.yml` build
+configuration. The Amplify application must have the frontend
+environment variables configured in its settings. After deployment,
+verify that the frontend API URL, Cognito configuration, and allowed
+CORS origins match the deployed backend.
+
+------------------------------------------------------------------------
 
 ## Security
 
-Campus Resource Rescue incorporates security best practices across all architectural tiers:
+The design includes the following controls:
 
-- **Cognito JWT Validation**: Protected routes are safeguarded by native API Gateway JWT authorizers validating token signature, expiration (`exp`), issuer (`iss`), and audience (`aud`).
-- **Owner-Based Authorization**: Lambda handlers verify that `caller.sub` matches the `ownerId` of the target entity before granting update or decision permissions.
-- **Atomic Concurrency Controls**: DynamoDB conditional writes (`attribute_not_exists`) prevent race conditions, duplicate claims, and double-booking.
-- **Private S3 Storage & Zero Public Read**: S3 bucket blocks all public access (`BlockPublicAcls`, `BlockPublicPolicy`, `IgnorePublicAcls`, `RestrictPublicBuckets`). Objects are accessed solely through time-limited pre-signed URLs (1 hour TTL).
-- **User-Isolated Upload Paths**: Pre-signed POST upload policies strictly enforce the object prefix `users/${callerSub}/resources/`. Users cannot write to another user's path.
-- **Magic Byte Validation**: Lambda validates image buffer magic bytes to ensure uploaded files are genuine JPEG, PNG, or WebP images before publishing.
-- **Strict CORS Policy**: API Gateway and S3 CORS policies explicitly restrict origins to the deployed Amplify frontend and local development server with zero wildcard (`*`) origins.
+-   **Cognito authentication:** users authenticate through Amazon
+    Cognito.
+-   **JWT authorisation:** API Gateway validates Cognito Access Tokens
+    on protected routes.
+-   **Server-derived identity:** Lambda uses the authenticated Cognito
+    `sub` claim rather than trusting user IDs supplied by the client.
+-   **Owner checks:** resource updates and request decisions verify that
+    the caller owns the relevant resource.
+-   **Private image storage:** S3 blocks public access; images are
+    accessed using short-lived pre-signed URLs.
+-   **User-scoped upload keys:** upload policies restrict object keys to
+    the authenticated user's prefix.
+-   **Upload validation:** supported image types are JPEG, PNG, and
+    WebP, with a maximum file size of 5 MB.
+-   **Least-privilege IAM:** each Lambda function has a separate
+    execution role with permissions for its required resources.
+-   **Atomic request operations:** DynamoDB transactions protect request
+    creation and acceptance from duplicate or conflicting writes.
+-   **CORS restrictions:** API and S3 CORS settings are intended to
+    allow the deployed frontend and configured local development origin.
 
----
+Never commit AWS credentials, private keys, `.env.local`, or other
+secrets to the repository.
+
+------------------------------------------------------------------------
 
 ## Testing
 
-### Backend Unit Tests
-The backend features 52 unit and integration tests across 16 test suites covering route handlers, authorization checks, validation rules, cursor pagination, and response envelopes.
+The project documentation records:
 
-Run backend tests using Node's native test runner:
-```bash
-cd backend
+-   **52 backend unit and integration tests** across 16 test suites.
+-   A live end-to-end test script that exercises authentication, API
+    preflight, S3 upload, and DynamoDB operations against deployed AWS
+    infrastructure.
+
+Run backend tests from `backend/`:
+
+``` bash
 npm test
 ```
 
-### End-to-End Integration Testing
-The project includes a comprehensive end-to-end test script that verifies the full user journey against live AWS infrastructure (Cognito authentication, API Gateway preflight, S3 upload, and DynamoDB transactions):
+Run the end-to-end test from `frontend/`:
 
-```bash
-cd frontend
+``` bash
 node e2e-test.mjs
 ```
 
----
+The end-to-end test requires a correctly configured deployed
+environment. Do not run it against production unless you understand the
+test data and its effects.
 
-## Future Improvements
+------------------------------------------------------------------------
 
-- **Real-Time In-App Messaging**: Direct messaging between listing owners and requesters via AWS AppSync (GraphQL subscriptions) or API Gateway WebSocket API.
-- **Automated CI/CD**: Continuous integration and deployment pipelines using GitHub Actions for automated SAM testing and Amplify deployments.
-- **Automated Email Notifications**: Transactional email updates via Amazon SES alerting users when requests are submitted, accepted, or rejected.
-- **User Reputation & Badges**: Community karma ratings and verified badges for frequent contributors to incentivize sustainable resource sharing.
-- **Multi-Campus Support**: Multi-tenant institutional domain verification allowing independent university chapters on a shared platform.
+## Limitations and Future Improvements
+
+The following items are documented as possible future work, not as
+claims about currently implemented functionality:
+
+-   Real-time in-app messaging between resource owners and requesters.
+-   Automated email notifications for request creation and decisions.
+-   User reputation and contribution badges.
+-   Multi-campus support.
+-   Automated CI/CD improvements for backend testing and deployment.
+-   A custom domain for the frontend.
+-   Additional cleanup policies for abandoned uploads and long-pending
+    requests.
+
+------------------------------------------------------------------------
+
+## Project Documentation
+
+Detailed technical documents can be maintained in the repository's
+`docs/` directory:
+
+-   `architecture-diagram.md` --- system architecture, authentication,
+    upload flow, and request lifecycle.
+-   `backend-architecture.md` --- Lambda responsibilities, SAM
+    infrastructure, IAM roles, and deployment details.
+-   `database-design.md` --- DynamoDB table schemas, indexes, access
+    patterns, and transaction design.
+-   `api-specification.md` --- API endpoints, request and response
+    formats, validation, and error codes.
+-   `security-design.md` --- security design and controls.
+
+------------------------------------------------------------------------
+
+## License
+
+This project is licensed under the MIT License.
+See the [LICENSE](LICENSE) file for details.
